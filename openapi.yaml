@@ -17,6 +17,12 @@ tags:
     description: Operações relacionadas a usuários
   - name: Work Items
     description: Operações relacionadas a work items
+  - name: Metrics
+    description: Métricas de fluxo, eficiência e capacidade baseadas em dados de work items
+  - name: People
+    description: Operações relacionadas a pessoas
+  - name: Work Item Types
+    description: Operações relacionadas a tipos de work items
 paths:
   /users/register:
     post:
@@ -131,9 +137,6 @@ paths:
           name: parentId
           schema: { type: integer }
         - in: query
-          name: workItemType
-          schema: { type: string }
-        - in: query
           name: workItemTypeId
           schema: { type: string, format: uuid }
         - in: query
@@ -142,10 +145,6 @@ paths:
         - in: query
           name: assignedToId
           schema: { type: string, format: uuid }
-        - in: query
-          name: assignedTo
-          schema: { type: string }
-          description: Filtra por nome da pessoa (substring, case-insensitive)
         - in: query
           name: titleContains
           schema: { type: string }
@@ -256,6 +255,490 @@ paths:
                     type: integer
                   ignored:
                     type: integer
+
+  /metrics/throughput:
+    get:
+      tags: [Metrics]
+      summary: Throughput por período (itens fechados)
+      description: |
+        Retorna quantidade de itens fechados agrupados por período (dia/semana/mês/trimestre).
+        Agrupa por tipo de work item quando disponível.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+        - in: query
+          name: workItemTypeId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por tipo de work item (opcional). Quando fornecido, retorna apenas resultados deste tipo.
+      responses:
+        '200':
+          description: Lista de throughput por período
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ThroughputPeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /metrics/arrival:
+    get:
+      tags: [Metrics]
+      summary: Taxa de chegada vs throughput
+      description: |
+        Compara itens criados (chegada) vs itens fechados (throughput) por período.
+        Retorna delta (acumulação/queima de backlog).
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+      responses:
+        '200':
+          description: Séries temporais de chegada e throughput
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArrivalThroughputPeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /metrics/wip:
+    get:
+      tags: [Metrics]
+      summary: WIP atual (Work In Progress)
+      description: |
+        Retorna snapshot atual de itens em progresso (closed_date IS NULL).
+        Inclui aging médio e percentis (p50/p75/p85/p90/p95) por dimensão:
+        total, por tipo e por pessoa.
+      responses:
+        '200':
+          description: WIP atual com aging e percentis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WipSnapshot'
+        '401':
+          description: Não autenticado
+
+  /metrics/lead-time:
+    get:
+      tags: [Metrics]
+      summary: Lead time (created_date → closed_date)
+      description: |
+        Tempo desde criação até fechamento. Retorna percentis (p50/p75/p85/p90/p95),
+        média e desvio padrão por período, tipo e pessoa.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+        - in: query
+          name: workItemTypeId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por tipo (opcional)
+        - in: query
+          name: personId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por pessoa (opcional)
+        - in: query
+          name: dimension
+          schema:
+            type: string
+            enum:
+              - type
+              - person
+          description: Dimensão de agrupamento (type ou person). Obrigatório quando tanto workItemTypeId quanto personId estão presentes. Se não especificado e ambos filtros estiverem ausentes, retorna ambas as dimensões.
+      responses:
+        '200':
+          description: Séries de lead time com percentis e estatísticas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeadCycleTimePeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /metrics/cycle-time:
+    get:
+      tags: [Metrics]
+      summary: Cycle time (activated_date → closed_date)
+      description: |
+        Tempo desde ativação até fechamento. Calculado apenas para itens com activated_date.
+        Retorna percentis (p50/p75/p90), média por período, tipo e pessoa.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+        - in: query
+          name: workItemTypeId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por tipo (opcional)
+        - in: query
+          name: personId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por pessoa (opcional)
+        - in: query
+          name: dimension
+          schema:
+            type: string
+            enum:
+              - type
+              - person
+          description: Dimensão de agrupamento (type ou person). Obrigatório quando tanto workItemTypeId quanto personId estão presentes. Se não especificado e ambos filtros estiverem ausentes, retorna ambas as dimensões.
+      responses:
+        '200':
+          description: Séries de cycle time com percentis e estatísticas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeadCycleTimePeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /metrics/sla:
+    get:
+      tags: [Metrics]
+      summary: SLA sugerido por tipo
+      description: |
+        Calcula % de itens que cumpriram SLA. Alvo = p85 do cycle/lead do trimestre anterior (por tipo).
+        Retorna total, cumpridos, % de cumprimento e alvo por período e tipo.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+      responses:
+        '200':
+          description: SLA por tipo com % de cumprimento
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SlaPeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /metrics/stuck:
+    get:
+      tags: [Metrics]
+      summary: Itens "stuck" (top 20 WIP por aging)
+      description: |
+        Retorna top 20 itens em progresso ordenados por aging (idade atual em dias).
+        Útil para identificar itens que precisam de atenção.
+      responses:
+        '200':
+          description: Top 20 itens stuck
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StuckItem'
+        '401':
+          description: Não autenticado
+
+  /metrics/hierarchy:
+    get:
+      tags: [Metrics]
+      summary: Hierarquia de work items (pais e filhos)
+      description: |
+        Retorna % de conclusão e tempo médio de conclusão dos filhos para cada item pai.
+        Ordenado por % de conclusão (mais críticos primeiro).
+      responses:
+        '200':
+          description: Hierarquia com % concluído e lead médio
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HierarchyItem'
+        '401':
+          description: Não autenticado
+
+  /metrics/capacity:
+    get:
+      tags: [Metrics]
+      summary: Capacidade por pessoa (throughput por responsável)
+      description: |
+        Retorna throughput (itens fechados) por período e por pessoa.
+        Útil para identificar desbalanceamento de carga.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial (ISO 8601). Padrao 90 dias atras
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+          description: Data final (ISO 8601). Padrao agora
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - quarter
+            default: week
+          description: Unidade de agrupamento temporal
+        - in: query
+          name: personId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por pessoa (opcional)
+      responses:
+        '200':
+          description: Throughput por período e pessoa
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CapacityPeriod'
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /people:
+    get:
+      tags: [People]
+      summary: Lista pessoas
+      description: |
+        Retorna lista de pessoas com filtros opcionais por id ou nome (busca parcial case-insensitive).
+        Se nenhum filtro for fornecido, retorna todas as pessoas.
+      parameters:
+        - in: query
+          name: id
+          schema:
+            type: string
+            format: uuid
+          description: ID da pessoa (UUID)
+        - in: query
+          name: name
+          schema:
+            type: string
+            minLength: 1
+          description: Busca parcial no nome (case-insensitive)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de pessoas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        nameNormalized:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                        updatedAt:
+                          type: string
+                          format: date-time
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
+
+  /work-item-types:
+    get:
+      tags: [Work Item Types]
+      summary: Lista tipos de work items
+      description: |
+        Retorna lista de tipos de work items com filtros opcionais por id ou nome (busca parcial case-insensitive).
+        Se nenhum filtro for fornecido, retorna todos os tipos.
+      parameters:
+        - in: query
+          name: id
+          schema:
+            type: string
+            format: uuid
+          description: ID do tipo (UUID)
+        - in: query
+          name: name
+          schema:
+            type: string
+            minLength: 1
+          description: Busca parcial no nome (case-insensitive)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de tipos de work items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        nameNormalized:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                        updatedAt:
+                          type: string
+                          format: date-time
+        '400':
+          description: Parâmetros inválidos
+        '401':
+          description: Não autenticado
 
 components:
   securitySchemes:
@@ -389,6 +872,283 @@ components:
           nullable: true
           description: Média de dias úteis de desenvolvimento entre início e fechamento, considerando apenas itens fechados
           example: 17.4
+
+    ThroughputPeriod:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date-time
+          description: Início do período (agrupado por groupBy)
+          example: "2025-01-01T00:00:00.000Z"
+        work_item_type_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID do tipo de work item (presente apenas quando filtrado por workItemTypeId)
+          example: "8c2d64a0-7f6d-4e9c-a1a4-6e2e9a6d9d0f"
+        type_name:
+          type: string
+          description: Nome do tipo de work item
+          example: "Feature"
+        closed_count:
+          type: integer
+          description: Quantidade de itens fechados no período
+          example: 15
+
+    ArrivalThroughputPeriod:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date-time
+          description: Início do período
+          example: "2025-01-01T00:00:00.000Z"
+        created:
+          type: integer
+          description: Quantidade de itens criados no período
+          example: 20
+        closed:
+          type: integer
+          description: Quantidade de itens fechados no período
+          example: 15
+        delta:
+          type: integer
+          description: Diferença chegada - throughput (acumulação/queima)
+          example: 5
+
+    WipSnapshot:
+      type: object
+      properties:
+        total:
+          $ref: '#/components/schemas/WipDimension'
+        byType:
+          type: array
+          items:
+            $ref: '#/components/schemas/WipDimension'
+          description: WIP agrupado por tipo
+        byPerson:
+          type: array
+          items:
+            $ref: '#/components/schemas/WipDimension'
+          description: WIP agrupado por pessoa
+
+    WipDimension:
+      type: object
+      properties:
+        dimension:
+          type: string
+          enum: [total, type, person]
+          example: "type"
+        name:
+          type: string
+          nullable: true
+          description: Nome da dimensão (tipo ou pessoa). null para total
+          example: "Feature"
+        wip_count:
+          type: integer
+          description: Quantidade de itens em progresso
+          example: 25
+        aging_avg:
+          type: string
+          description: Aging médio como intervalo PostgreSQL
+          example: "45 days 12:30:00"
+        p50:
+          type: string
+          description: Percentil 50 de aging
+          example: "30 days 00:00:00"
+        p75:
+          type: string
+          description: Percentil 75 de aging
+          example: "60 days 00:00:00"
+        p85:
+          type: string
+          description: Percentil 85 de aging
+          example: "75 days 00:00:00"
+        p90:
+          type: string
+          description: Percentil 90 de aging
+          example: "90 days 00:00:00"
+        p95:
+          type: string
+          description: Percentil 95 de aging
+          example: "120 days 00:00:00"
+
+    LeadCycleTimePeriod:
+      type: object
+      properties:
+        dimension:
+          type: string
+          enum: [type, person]
+          example: "type"
+        name:
+          type: string
+          description: Nome do tipo ou pessoa (ou "(unassigned)")
+          example: "Feature"
+        period:
+          type: string
+          format: date-time
+          description: Início do período
+          example: "2025-01-01T00:00:00.000Z"
+        n:
+          type: integer
+          description: Quantidade de itens no período
+          example: 50
+        lead_avg:
+          type: string
+          description: Lead time médio (intervalo PostgreSQL)
+          example: "45 days 12:30:00"
+        lead_std:
+          type: number
+          format: double
+          nullable: true
+          description: Desvio padrão do lead time
+          example: 15.5
+        lead_p50:
+          type: string
+          description: Percentil 50 do lead time
+          example: "40 days 00:00:00"
+        lead_p75:
+          type: string
+          description: Percentil 75 do lead time
+          example: "55 days 00:00:00"
+        lead_p85:
+          type: string
+          description: Percentil 85 do lead time
+          example: "65 days 00:00:00"
+        lead_p90:
+          type: string
+          description: Percentil 90 do lead time
+          example: "75 days 00:00:00"
+        lead_p95:
+          type: string
+          description: Percentil 95 do lead time
+          example: "90 days 00:00:00"
+        cycle_avg:
+          type: string
+          nullable: true
+          description: Cycle time médio (null se não houver activated_date)
+          example: "30 days 08:15:00"
+        cycle_p50:
+          type: string
+          nullable: true
+          description: Percentil 50 do cycle time
+          example: "25 days 00:00:00"
+        cycle_p75:
+          type: string
+          nullable: true
+          description: Percentil 75 do cycle time
+          example: "40 days 00:00:00"
+        cycle_p90:
+          type: string
+          nullable: true
+          description: Percentil 90 do cycle time
+          example: "55 days 00:00:00"
+
+    SlaPeriod:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date-time
+          description: Início do período
+          example: "2025-01-01T00:00:00.000Z"
+        type_name:
+          type: string
+          description: Nome do tipo de work item
+          example: "Feature"
+        total:
+          type: integer
+          description: Total de itens fechados no período
+          example: 50
+        met:
+          type: integer
+          description: Quantidade que cumpriram SLA
+          example: 42
+        met_pct:
+          type: number
+          format: float
+          description: Percentual de cumprimento (0-100)
+          example: 84.0
+        sla_target:
+          type: string
+          nullable: true
+          description: Alvo de SLA (p85 do trimestre anterior, intervalo PostgreSQL)
+          example: "60 days 00:00:00"
+
+    StuckItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID do work item
+          example: 1916409
+        title:
+          type: string
+          description: Título do item
+          example: "[Estoque] Implementar módulo de relatórios"
+        type_name:
+          type: string
+          description: Nome do tipo
+          example: "Feature"
+        person_name:
+          type: string
+          description: Nome da pessoa responsável (ou "(unassigned)")
+          example: "Bruno"
+        aging_days:
+          type: number
+          format: double
+          description: Aging atual em dias
+          example: 125.5
+
+    HierarchyItem:
+      type: object
+      properties:
+        parent_id:
+          type: integer
+          description: ID do item pai
+          example: 1000000
+        parent_title:
+          type: string
+          nullable: true
+          description: Título do pai (null se não encontrado)
+          example: "[EPIC] Autenticação"
+        total_children:
+          type: integer
+          description: Total de filhos
+          example: 20
+        closed_children:
+          type: integer
+          description: Filhos concluídos
+          example: 15
+        percent_closed:
+          type: number
+          format: float
+          nullable: true
+          description: Percentual concluído (0-100)
+          example: 75.0
+        avg_lead:
+          type: string
+          nullable: true
+          description: Lead time médio dos filhos concluídos (intervalo PostgreSQL)
+          example: "45 days 12:30:00"
+
+    CapacityPeriod:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date-time
+          description: Início do período
+          example: "2025-01-01T00:00:00.000Z"
+        person_name:
+          type: string
+          description: Nome da pessoa (ou "(unassigned)")
+          example: "Bruno"
+        closed_count:
+          type: integer
+          description: Quantidade de itens fechados no período por essa pessoa
+          example: 12
 
 security:
   - bearerAuth: []

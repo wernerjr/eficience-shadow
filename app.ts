@@ -4,6 +4,9 @@ import cors from '@fastify/cors';
 import { pool } from './db/index';
 import { usersRoutes } from './users/handler';
 import { workItemsRoutes } from './work-items/handler';
+import { metricsRoutes } from './metrics/handler';
+import { peopleRoutes } from './people/handler';
+import { workItemTypesRoutes } from './work-item-types/handler';
 
 const app = Fastify({ 
   logger: {
@@ -31,6 +34,15 @@ app.register(usersRoutes, { prefix: '/users' });
 
 // Registra rotas do vertical slice de work-items
 app.register(workItemsRoutes, { prefix: '/work-items' });
+
+// Registra rotas do vertical slice de métricas
+app.register(metricsRoutes, { prefix: '/metrics' });
+
+// Registra rotas do vertical slice de pessoas
+app.register(peopleRoutes, { prefix: '/people' });
+
+// Registra rotas do vertical slice de work item types
+app.register(workItemTypesRoutes, { prefix: '/work-item-types' });
 
 // Servir OpenAPI e Swagger UI (spec externo)
 app.get('/openapi.yaml', async (_req, reply) => {

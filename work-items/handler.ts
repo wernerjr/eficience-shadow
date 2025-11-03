@@ -67,11 +67,9 @@ export async function workItemsRoutes(app: FastifyInstance) {
       // filtros
       id: z.coerce.number().int().optional(),
       parentId: z.coerce.number().int().optional(),
-      workItemType: z.string().min(1).optional(),
       workItemTypeId: z.string().uuid().optional(),
       state: z.string().min(1).optional(),
       assignedToId: z.string().uuid().optional(),
-      assignedTo: z.string().min(1).optional(),
       titleContains: z.string().min(1).optional(),
       createdFrom: z.string().datetime().optional(),
       createdTo: z.string().datetime().optional(),
@@ -94,11 +92,9 @@ export async function workItemsRoutes(app: FastifyInstance) {
         {
           id: q.id,
           parentId: q.parentId,
-          workItemType: q.workItemType,
           workItemTypeId: q.workItemTypeId,
           state: q.state,
           assignedToId: q.assignedToId,
-          assignedTo: q.assignedTo,
           titleContains: q.titleContains,
           createdFrom: q.createdFrom ? new Date(q.createdFrom) : undefined,
           createdTo: q.createdTo ? new Date(q.createdTo) : undefined,
