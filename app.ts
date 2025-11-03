@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { pool } from './db/index';
 import { usersRoutes } from './users/handler';
+import { workItemsRoutes } from './work-items/handler';
 
 const app = Fastify({ 
   logger: {
@@ -28,6 +29,9 @@ await app.register(cors, {
 // Registra rotas do vertical slice de usuários
 app.register(usersRoutes, { prefix: '/users' });
 
+// Registra rotas do vertical slice de work-items
+app.register(workItemsRoutes, { prefix: '/work-items' });
+
 // Servir OpenAPI e Swagger UI (spec externo)
 app.get('/openapi.yaml', async (_req, reply) => {
   // serve como arquivo estático simples
@@ -42,7 +46,7 @@ app.get('/docs', async (_req, reply) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Template Backend Fastify - Docs</title>
+      <title>Eficience Shadow Backend - Docs</title>
       <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
     </head>
     <body>

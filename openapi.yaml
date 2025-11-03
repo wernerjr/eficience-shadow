@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Template Backend Fastify
+  title: Eficience Shadow
   version: 1.0.0
   description: |
     API para gerenciamento de usuários: cadastro, login e login via Google OAuth.
@@ -15,6 +15,8 @@ servers:
 tags:
   - name: users
     description: Operações relacionadas a usuários
+  - name: Work Items
+    description: Operações relacionadas a work items
 paths:
   /users/register:
     post:
@@ -101,6 +103,160 @@ paths:
           description: Erro no fluxo OAuth
       security: []
 
+  /work-items:
+    get:
+      summary: Lista work items com filtros, paginação e tempos de desenvolvimento
+      description: |
+        Retorna work items com cálculo de dias úteis de desenvolvimento (seg-sex, excluindo feriados do Brasil). 
+        Início: `activatedDate` (se existir) ou `createdDate`. Fim: `closedDate`.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+          description: Quantidade de itens por página
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+          description: Deslocamento/página
+        - in: query
+          name: sortBy
+          schema: { type: string, enum: [id], default: id }
+        - in: query
+          name: sortDir
+          schema: { type: string, enum: [asc, desc], default: asc }
+        - in: query
+          name: id
+          schema: { type: integer }
+        - in: query
+          name: parentId
+          schema: { type: integer }
+        - in: query
+          name: workItemType
+          schema: { type: string }
+        - in: query
+          name: workItemTypeId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: assignedToId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: assignedTo
+          schema: { type: string }
+          description: Filtra por nome da pessoa (substring, case-insensitive)
+        - in: query
+          name: titleContains
+          schema: { type: string }
+          description: Filtro por título contendo substring (case-insensitive)
+        - in: query
+          name: createdFrom
+          schema: { type: string, format: date-time }
+        - in: query
+          name: createdTo
+          schema: { type: string, format: date-time }
+        - in: query
+          name: activatedFrom
+          schema: { type: string, format: date-time }
+        - in: query
+          name: activatedTo
+          schema: { type: string, format: date-time }
+        - in: query
+          name: closedFrom
+          schema: { type: string, format: date-time }
+        - in: query
+          name: closedTo
+          schema: { type: string, format: date-time }
+        - in: query
+          name: isClosed
+          schema: { type: boolean }
+          description: true = somente fechados; false = somente não fechados
+        - in: query
+          name: hasParent
+          schema: { type: boolean }
+          description: true = somente com pai; false = somente sem pai
+      tags: [Work Items]
+      responses:
+        '200':
+          description: Lista de work items com tempos de desenvolvimento, total e resumo (sem paginação)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkItemsListResponse'
+        '401':
+          description: Não autenticado
+        '500':
+          description: Erro interno do servidor
+
+  /work-items/import:
+    post:
+      summary: Importa ou atualiza work items via JSON (bulk upsert)
+      description: Recebe um array de work items para criar ou atualizar no banco. `work item type` é aceito como string e normalizado para tabela `work_item_types`. `parent_id` é resolvido pelo title no payload.
+      tags: [Work Items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                required: [id, work item type, state, created date, activated date, title]
+                properties:
+                  id:
+                    type: string
+                    example: "101"
+                  work item type:
+                    type: string
+                    example: "User Story"
+                  assigned to:
+                    type: string
+                    nullable: true
+                    example: "maria@empresa.com"
+                  state:
+                    type: string
+                    example: "Active"
+                  created date:
+                    type: string
+                    description: Formato DD-MM-YYYY HH:mm (UTC)
+                    example: "02-11-2025 09:15"
+                  activated date:
+                    type: string
+                    description: Formato DD-MM-YYYY HH:mm (UTC)
+                    example: "02-11-2025 10:00"
+                  closed date:
+                    type: string
+                    nullable: true
+                    description: Formato DD-MM-YYYY HH:mm (UTC). Pode ser nulo/ausente.
+                    example: ""
+                  description:
+                    type: string
+                    nullable: true
+                    example: "Detalhes do item de trabalho"
+                  title:
+                    type: string
+                    example: "Implementar login"
+                  parent:
+                    type: string
+                    nullable: true
+                    description: Título do pai; usado para resolver parent_id pelo payload.
+                    example: "[EPIC] Autenticação"
+      responses:
+        '200':
+          description: Work items importados/atualizados com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inserted:
+                    type: integer
+                  updated:
+                    type: integer
+                  ignored:
+                    type: integer
+
 components:
   securitySchemes:
     bearerAuth:
@@ -139,6 +295,100 @@ components:
           type: string
           description: JWT Bearer token
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    WorkItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1916409
+        workItemTypeId:
+          type: string
+          format: uuid
+          example: "8c2d64a0-7f6d-4e9c-a1a4-6e2e9a6d9d0f"
+        workItemType:
+          type: string
+          example: "Feature"
+        state:
+          type: string
+          example: "Closed"
+        createdDate:
+          type: string
+          format: date-time
+          example: "2025-03-26T08:47:00.000Z"
+        activatedDate:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-04-23T11:33:00.000Z"
+        closedDate:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-06-05T11:03:00.000Z"
+        title:
+          type: string
+          example: "[Estoque] Raiz"
+        description:
+          type: string
+          nullable: true
+          example: "Fluxo"
+        assignedTo:
+          type: string
+          nullable: true
+          example: "Bruno"
+        assignedToId:
+          type: string
+          format: uuid
+          nullable: true
+          example: "8c2d64a0-7f6d-4e9c-a1a4-6e2e9a6d9d0f"
+        parentId:
+          type: integer
+          nullable: true
+          example: null
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-01-01T00:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-01-01T00:00:00.000Z"
+        developmentBusinessDays:
+          type: integer
+          nullable: true
+          description: Número de dias úteis de desenvolvimento (seg-sex, excluindo feriados do Brasil). null se não houver closedDate.
+          example: 42
+
+    WorkItemsListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 123
+        summary:
+          $ref: '#/components/schemas/WorkItemsSummary'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkItemResponse'
+
+    WorkItemsSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total de itens que batem o filtro (sem paginação)
+          example: 123
+        closed:
+          type: integer
+          description: Total de itens fechados que batem o filtro (sem paginação)
+          example: 80
+        avgDevelopmentBusinessDays:
+          type: number
+          format: float
+          nullable: true
+          description: Média de dias úteis de desenvolvimento entre início e fechamento, considerando apenas itens fechados
+          example: 17.4
 
 security:
   - bearerAuth: []
