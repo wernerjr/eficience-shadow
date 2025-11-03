@@ -1,0 +1,146 @@
+openapi: 3.0.3
+info:
+  title: Template Backend Fastify
+  version: 1.0.0
+  description: |
+    API para gerenciamento de usuários: cadastro, login e login via Google OAuth.
+    - Autenticação via JWT (Bearer)
+    - Arquitetura vertical slice
+  contact:
+    name: Werner
+  termsOfService: https://example.com/terms
+servers:
+  - url: /
+    description: Same origin
+tags:
+  - name: users
+    description: Operações relacionadas a usuários
+paths:
+  /users/register:
+    post:
+      tags: [users]
+      summary: Registrar novo usuário
+      description: Cria um usuário com email e senha. Retorna um JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Dados inválidos
+        '409':
+          description: Email já cadastrado
+      security: []
+
+  /users/login:
+    post:
+      tags: [users]
+      summary: Login com email e senha
+      description: Autentica o usuário e retorna um JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Dados inválidos
+        '401':
+          description: Credenciais inválidas
+      security: []
+
+  /users/google:
+    get:
+      tags: [users]
+      summary: Login social via Google OAuth
+      description: |
+        Inicia o fluxo OAuth (sem `code`) redirecionando para o Google.
+        Quando chamado pelo Google com `code`, troca pelo token e retorna JWT.
+      parameters:
+        - in: query
+          name: code
+          required: false
+          schema:
+            type: string
+          description: Código de autorização retornado pelo Google
+        - in: query
+          name: state
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Autenticado com sucesso (quando há `code`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '302':
+          description: Redireciona para o Google (quando não há `code`)
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL de autorização do Google
+        '400':
+          description: Erro no fluxo OAuth
+      security: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 8
+          example: strongPass123
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: strongPass123
+    AuthResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+security:
+  - bearerAuth: []
+
+
